@@ -1,0 +1,21 @@
+# build output
+bin/
+obj/
+build/
+release/
+
+# training data and experimental networks (large files, regenerate with datagen/train)
+data/
+nets/
+*.bin
+*.f32
+
+# match results
+*.pgn
+*.log
+
+# editors
+.vs/
+.vscode/
+*.user
+*.suo

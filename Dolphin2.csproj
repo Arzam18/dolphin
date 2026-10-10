@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net5.0</TargetFramework>
+    <RootNamespace>Dolphin2</RootNamespace>
+    <AssemblyName>Dolphin2</AssemblyName>
+    <Nullable>disable</Nullable>
+    <LangVersion>9.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Optimize>true</Optimize>
+    <TieredCompilation>false</TieredCompilation>
+    <TieredPGO>false</TieredPGO>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <PlatformTarget>x64</PlatformTarget>
+    <RollForward>Major</RollForward>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Version>2.0.0</Version>
+    <Authors>Nguyen Viet Huy</Authors>
+    <Product>Dolphin Chess</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="snap/**;legacy/**;data/**;tools/**;build/**;release/**;nets/**;githubcode/**;docs/**" />
+    <EmbeddedResource Include="dolphin.nnue" Condition="Exists('dolphin.nnue')" LogicalName="dolphin.nnue" />
+  </ItemGroup>
+
+</Project>
