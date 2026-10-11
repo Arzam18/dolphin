@@ -140,23 +140,30 @@ namespace Dolphin2
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static int StatBonus(int depth) => Math.Min(170 * depth - 100, 1800);
 
+        // moves that failed are punished harder than the winner is rewarded, and saturate early
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int StatPenalty(int depth) => Math.Min(655 * depth - 106, 1267);
+
         void UpdateStats(int bestMove, int depth, int ply, int[] quiets, int nq, int[] caps, int nc)
         {
             int s = ply + Off;
             int bonus = StatBonus(depth);
+            int penalty = StatPenalty(depth);
             int us = Pos.SideToMove;
             if (!Mv.IsTactical(bestMove))
             {
-                UpdateQuietHistory(us, bestMove, Pos.Board[Mv.From(bestMove)], ply, bonus);
-                for (int i = 0; i < nq; i++)
-                    UpdateQuietHistory(us, quiets[i], Pos.Board[Mv.From(quiets[i])], ply, -bonus);
                 if (ss[s].Killer1 != bestMove) { ss[s].Killer2 = ss[s].Killer1; ss[s].Killer1 = bestMove; }
                 int prev = ss[s - 1].Move;
                 if (prev != Mv.None && prev != Mv.Null && ss[s - 1].ContIdx != NoCont)
                     counterMoves[ss[s - 1].ContIdx] = bestMove;
+                // a first-move cutoff at low depth says little: do not let it move the history tables
+                if (nq == 0 && depth <= 3) return;
+                UpdateQuietHistory(us, bestMove, Pos.Board[Mv.From(bestMove)], ply, bonus);
+                for (int i = 0; i < nq; i++)
+                    UpdateQuietHistory(us, quiets[i], Pos.Board[Mv.From(quiets[i])], ply, -penalty);
             }
             else UpdateCaptureHistory(bestMove, bonus);
-            for (int i = 0; i < nc; i++) UpdateCaptureHistory(caps[i], -bonus);
+            for (int i = 0; i < nc; i++) UpdateCaptureHistory(caps[i], -penalty);
         }
 
         // ---------------------------------------------------------------- helpers
@@ -406,6 +413,15 @@ namespace Dolphin2
                 if (ss[s - 2].StaticEval != C.NoScore) improving = staticEval > ss[s - 2].StaticEval;
                 else if (ss[s - 4].StaticEval != C.NoScore) improving = staticEval > ss[s - 4].StaticEval;
                 else improving = true;
+
+                // the opponent's last quiet move is rewarded by how much it moved the static eval in its favour
+                int prevQuiet = ss[s - 1].Move;
+                if (ply > 0 && prevQuiet != Mv.None && prevQuiet != Mv.Null && !ss[s - 1].InCheck
+                    && Pos.Captured == C.NoPiece && ss[s - 1].StaticEval != C.NoScore)
+                {
+                    int bonus = Math.Clamp(-153 * (ss[s - 1].StaticEval + staticEval) / 16, -101, 192);
+                    Gravity(ref mainHist[((Pos.SideToMove ^ 1) << 12) | (Mv.From(prevQuiet) << 6) | Mv.To(prevQuiet)], bonus, 16384);
+                }
             }
 
             int us = Pos.SideToMove;
@@ -432,6 +448,7 @@ namespace Dolphin2
                     ss[s].Move = Mv.Null;
                     ss[s].ContIdx = NoCont;
                     Pos.MakeNullMove();
+                    TT.Prefetch(Pos.Key);
                     int v = -Search(-beta, -beta + 1, depth - R, ply + 1, !cutNode, false);
                     Pos.UnmakeNullMove();
                     if (Ctx.Stop) return 0;
@@ -554,6 +571,7 @@ namespace Dolphin2
                 ss[s].Move = m;
                 ss[s].ContIdx = piece * 64 + to;
                 Pos.MakeMove(m);
+                TT.Prefetch(Pos.Key);
 
                 int score;
                 // ------------------------------------------------ late move reductions
@@ -752,6 +770,7 @@ namespace Dolphin2
                 ss[s].Move = m;
                 ss[s].ContIdx = Pos.Board[Mv.From(m)] * 64 + Mv.To(m);
                 Pos.MakeMove(m);
+                TT.Prefetch(Pos.Key);
                 int score = -QSearch(-beta, -alpha, ply + 1, pvNode);
                 Pos.UnmakeMove(m);
                 if (Ctx.Stop && RootDepth > 1) return 0;

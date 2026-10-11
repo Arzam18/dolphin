@@ -251,6 +251,10 @@ The `tools/` folder contains the Python scripts used during development (they ne
 
 Stockfish was used only as an external tool (reference perft results and a sparring partner). Dolphin does not contain any Stockfish code or networks.
 
+### Search changes in version 2.2
+
+Version 2.2 keeps the 2.1 network and changes only the search: the opponent's previous quiet move is rewarded or penalised by how much it changed the static evaluation, refuted moves receive heavier history penalties, and the transposition table is prefetched after every move. Each change was kept only after a self-play SPRT test at fixed nodes; three further ideas were tested and rejected. The combined build scored **+48.5 ± 17.1 Elo against 2.1** at 8+0.08 (519 games, 1 thread, `tools/match.py`), and in cutechess-cli against the 2.1.0 release package: 40 moves/30 s 19-15-66 (100 games), 5+0.05 with the engine restarted every game 42-11-47 (100 games), 10+0.1 with 4 threads and 1 GB hash 6-2-12 (20 games). No time losses, crashes or illegal moves. The `bench` node count of 2.2 is `1627584`.
+
 ### Release testing (version 2.1)
 
 Before release, the downloadable packages were played against Dolphin 2.0 with cutechess-cli 1.5.1 on an Intel i7-11800H: 1460 games at 10+0.1, 40 moves in 30 s, 2 min + 1 s, with 4 threads and 1 GB hash, and with the engine restarted for every game. There were no time losses, crashes or illegal moves. At 10+0.1 (1000 games, 1 thread) version 2.1 scored +47.9 ± 16.2 Elo against 2.0. Full numbers are in the [release notes](https://github.com/aiagentvn/dolphin/releases/tag/v2.1.0).

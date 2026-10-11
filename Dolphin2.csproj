@@ -18,7 +18,7 @@
     <RollForward>Major</RollForward>
     <DebugType>none</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <Authors>Nguyen Viet Huy</Authors>
     <Product>Dolphin Chess</Product>
   </PropertyGroup>
