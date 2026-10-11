@@ -676,7 +676,8 @@ namespace Dolphin2
             Nodes++;
             CheckTime();
             if (Ctx.Stop && RootDepth > 1) return 0;
-            if (pvNode) { pvLen[ply] = ply; if (ply > SelDepth) SelDepth = ply; }
+            pvLen[ply] = ply; // also in non-PV nodes, so a parent never copies a stale PV tail
+            if (pvNode && ply > SelDepth) SelDepth = ply;
 
             bool inCheck = Pos.Checkers != 0;
             if (Pos.IsDraw(ply)) return DrawScore();

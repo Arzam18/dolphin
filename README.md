@@ -14,8 +14,10 @@ You can load it into any chess GUI that speaks UCI (Arena, Cute Chess, BanksiaGU
 
 ## Contents
 
+- [Download](#download)
 - [Quick start](#quick-start)
 - [Using Dolphin in a chess GUI](#using-dolphin-in-a-chess-gui)
+- [Troubleshooting](#troubleshooting)
 - [UCI options](#uci-options)
 - [Command-line tools](#command-line-tools)
 - [How the engine works](#how-the-engine-works)
@@ -26,6 +28,21 @@ You can load it into any chess GUI that speaks UCI (Arena, Cute Chess, BanksiaGU
 
 ---
 
+## Download
+
+Ready-to-run Windows builds are on the [Releases page](https://github.com/aiagentvn/dolphin/releases/latest):
+
+| File | What it is |
+|---|---|
+| `Dolphin-<version>-windows-x64.zip` | **Recommended.** Self-contained: includes its own .NET runtime, nothing to install. Keep all files of the folder together. |
+| `Dolphin-<version>-windows-x64-requires-dotnet.zip` | Small package for machines that already have the [.NET Runtime](https://dotnet.microsoft.com/download/dotnet) 5.0 or newer. Keep the four files `Dolphin2.exe`, `Dolphin2.dll`, `Dolphin2.deps.json`, `Dolphin2.runtimeconfig.json` together. |
+
+In both packages the neural network is embedded in the program, so no separate network file is needed. Unzip, then load `Dolphin2.exe` into your GUI as a UCI engine.
+
+On Linux or macOS, build from source (see below).
+
+---
+
 ## Quick start
 
 ### Requirements
@@ -33,7 +50,7 @@ You can load it into any chess GUI that speaks UCI (Arena, Cute Chess, BanksiaGU
 | What | Version |
 |---|---|
 | [.NET SDK](https://dotnet.microsoft.com/download) | 5.0 or newer (to build) |
-| .NET runtime | 5.0 or newer (to run; the engine rolls forward to newer runtimes automatically) |
+| .NET runtime | 5.0 or newer, to run a framework-dependent build (it rolls forward to newer runtimes automatically). Not needed for the self-contained release package. |
 | CPU | 64-bit x86 (x64). CPUs with **AVX2** get a fast NNUE path; older x64 CPUs fall back to a slower scalar path. |
 | OS | Windows (tested). Linux and macOS on x64 should also work through `dotnet`, but have not been tested yet. |
 
@@ -79,7 +96,7 @@ This builds into `release/Dolphin2/`, verifies that the network is embedded corr
 **Arena**
 
 1. `Engines` → `Install New Engine...`
-2. Select `Dolphin2.exe` and choose the **UCI** type.
+2. Select `Dolphin2.exe` from the unzipped release folder (or from `release/Dolphin2/` if you built it yourself) and choose the **UCI** type.
 3. Optional: `Engines` → `Configure` to change Hash, Threads, etc. (see below).
 
 **Cute Chess (GUI or cutechess-cli)**
@@ -87,6 +104,20 @@ This builds into `release/Dolphin2/`, verifies that the network is embedded corr
 Add a new engine, set the command to the path of `Dolphin2.exe` and the protocol to **UCI**.
 
 Dolphin has no built-in opening book. Use your GUI's book if you want varied openings.
+
+---
+
+## Troubleshooting
+
+**The engine does not move and loses on time from the first move.**
+Open a command prompt in the engine folder, run `Dolphin2.exe` and type `uci`. You should see `uciok`.
+
+- `The library 'hostpolicy.dll' ... runtimeconfig.json was not found`: you are using the package that requires .NET and one of its four files is missing. Copy the whole folder again.
+- A message that the framework `Microsoft.NETCore.App` was not found: the .NET Runtime is not installed. Install it, or use the self-contained package.
+- Windows reports a missing DLL: you are using the self-contained package and not all files were copied. Copy the whole folder again.
+
+**The engine loses on time in very fast games.**
+Increase the UCI option `Move Overhead` (for example to 100–200 ms).
 
 ---
 
@@ -198,7 +229,7 @@ Dolphin2.exe train data=data/gen1.bin,data/gen2.bin hidden=384 epochs=25 threads
 | `mirror` | 0 | `mirror=1` adds horizontally mirrored positions |
 | `out` | `dolphin.nnue` | Output network. A float checkpoint `<out>.f32` is saved too. |
 
-The bundled `dolphin.nnue` was trained this way: about 28 million self-play positions (searched at 5000 nodes per move), hidden size 384, 25 epochs, `lambda=0.35`.
+The bundled `dolphin.nnue` was trained this way: about 44 million self-play positions from five generations of data (searched at 5000 nodes per move, each generation played with the best network available at the time), hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`.
 
 **3. Use the network**
 

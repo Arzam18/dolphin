@@ -544,6 +544,7 @@ namespace Dolphin2
             if (m == Mv.None || m == Mv.Null) return false;
             int us = SideToMove, them = us ^ 1;
             int from = Mv.From(m), to = Mv.To(m), flag = Mv.Flag(m);
+            if (flag == 6 || flag == 7) return false; // unused codes: never generated, can only come from a corrupted TT entry
             int pc = Board[from];
             if (pc == C.NoPiece || C.ColorOf(pc) != us) return false;
             if ((Colors[us] & (1UL << to)) != 0) return false;
