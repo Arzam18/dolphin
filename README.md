@@ -116,6 +116,9 @@ Open a command prompt in the engine folder, run `Dolphin2.exe` and type `uci`. Y
 - A message that the framework `Microsoft.NETCore.App` was not found: the .NET Runtime is not installed. Install it, or use the self-contained package.
 - Windows reports a missing DLL: you are using the self-contained package and not all files were copied. Copy the whole folder again.
 
+**The GUI adds the engine without its name, author or options (for example in ChessGUI).**
+Versions up to 2.2.0 crashed at startup when a GUI started the engine without a console window. This is fixed in 2.2.1; please update.
+
 **The engine loses on time in very fast games.**
 Increase the UCI option `Move Overhead` (for example to 100–200 ms).
 

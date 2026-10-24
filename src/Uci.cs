@@ -8,7 +8,7 @@ namespace Dolphin2
 {
     public static class Uci
     {
-        public const string EngineName = "Dolphin 2.2";
+        public const string EngineName = "Dolphin 2.2.1";
         public const string Author = "Nguyen Viet Huy";
 
         static int hashMb = 64;
@@ -109,10 +109,12 @@ namespace Dolphin2
                     SearchManager.Limits.Infinite = false;
                     return false;
                 case "d":
+                    warmupDone.Wait(); // the warm-up search shares the root position
                     Console.Write(SearchManager.RootPosition.Pretty());
                     break;
                 case "eval":
                     {
+                        warmupDone.Wait();
                         var p = SearchManager.RootPosition;
                         var pt = new Eval.PawnTable();
                         int cl = Eval.EvaluateClassic(p, pt);
@@ -125,12 +127,14 @@ namespace Dolphin2
                     }
                 case "perft":
                     {
+                        warmupDone.Wait();
                         int d = tok.Length > 1 ? int.Parse(tok[1]) : 5;
                         Perft.Divide(SearchManager.RootPosition, d);
                         break;
                     }
                 case "bench":
                     {
+                        warmupDone.Wait();
                         int d = tok.Length > 1 ? int.Parse(tok[1]) : 13;
                         Bench.Run(d);
                         break;
@@ -280,7 +284,9 @@ namespace Dolphin2
     {
         public static void Main(string[] args)
         {
-            Console.InputEncoding = System.Text.Encoding.ASCII;
+            // Own reader on the raw stdin stream: setting Console.InputEncoding calls SetConsoleCP, which throws
+            // when a GUI starts the engine without a console (DETACHED_PROCESS) and kills it before "uci".
+            Console.SetIn(new StreamReader(Console.OpenStandardInput(), System.Text.Encoding.ASCII, false));
             var stdout = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true, NewLine = "\n" };
             Console.SetOut(stdout);
             Console.WriteLine(Uci.EngineName + " by " + Uci.Author + " (C# bitboard UCI engine, NNUE)");
