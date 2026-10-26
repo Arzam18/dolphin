@@ -9,6 +9,7 @@ You can load it into any chess GUI that speaks UCI (Arena, Cute Chess, BanksiaGU
 - **Language:** C# (.NET), single project, no external dependencies
 - **Protocol:** UCI
 - **License:** [MIT](LICENSE)
+- **Rating:** CCRL Blitz **3448** (±21) for Dolphin 2.2, rank 124 at the time of writing (October 2026, 575 games). See the [CCRL Blitz rating list](https://computerchess.org.uk/404/) and the [Dolphin 2.2 details](https://computerchess.org.uk/404/cgi/engine_details.cgi?print=Details&each_game=1&eng=Dolphin%202.2%2064-bit). Version 2.2.1 plays exactly like 2.2; it only fixes a startup problem in some GUIs.
 
 ---
 
