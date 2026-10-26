@@ -99,6 +99,7 @@ class Match:
         node = game
         result, reason = None, ""
         win_streak = {chess.WHITE: 0, chess.BLACK: 0}
+        last_cp = {chess.WHITE: None, chess.BLACK: None}
         draw_streak = 0
         while True:
             if board.is_game_over(claim_draw=True):
@@ -134,13 +135,13 @@ class Match:
             if sc is not None:
                 cp = sc.pov(side).score(mate_score=100000)
                 if cp is not None:
+                    last_cp[side] = cp
                     if cp >= 1000: win_streak[side] += 1
                     else: win_streak[side] = 0
-                    if cp <= -1000: win_streak[not side] = win_streak[not side]  # handled by opponent's own view
                     if abs(cp) <= 8 and board.fullmove_number > 40: draw_streak += 1
                     else: draw_streak = 0
-            if win_streak[side] >= 4 and self.a.adjudicate:
-                # both engines must agree: check opponent's last view
+            # both engines must agree: the winner's last 4 scores >= +1000 and the loser's last score <= -1000
+            if win_streak[side] >= 4 and last_cp[not side] is not None and last_cp[not side] <= -1000 and self.a.adjudicate:
                 result = "1-0" if side == chess.WHITE else "0-1"; reason = "adj-win"
                 break
             if draw_streak >= 12 and self.a.adjudicate:
