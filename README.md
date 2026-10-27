@@ -172,6 +172,7 @@ Besides the normal UCI mode, the executable accepts a few commands. They can be 
 - Pruning: null-move pruning, reverse futility pruning, razoring, futility pruning, late move pruning, ProbCut
 - Reductions and extensions: late move reductions (LMR), singular extensions, internal iterative reduction (IIR)
 - Move ordering: hash move, SEE-sorted captures, killer moves, history, countermove and continuation history
+- Correction history: the static evaluation is corrected by what earlier searches found in similar positions (pawn structure, each side's other pieces, recent moves)
 - Multi-threading with **Lazy SMP**
 - Time management for all common time controls, plus pondering
 - Designed to avoid memory allocation during search (the hot code uses `unsafe` C#)
@@ -254,6 +255,26 @@ The `tools/` folder contains the Python scripts used during development (they ne
 - **`bench`**: the node count of `Dolphin2.exe bench` is a quick check that a change did not alter the search by accident.
 
 Stockfish was used only as an external tool (reference perft results and a sparring partner). Dolphin does not contain any Stockfish code or networks.
+
+### Search changes in version 2.3
+
+Version 2.3 keeps the same network and changes only the search. It adds five things:
+- a correction history from five sources;
+- no reverse futility pruning at TT-PV nodes or when the hash move is quiet;
+- an evaluation that is scaled down as material comes off the board;
+- fail-high scores pulled toward beta at non-PV nodes;
+- a penalty for the opponent's previous move when it is refuted at once.
+
+Each change was kept only after a self-play SPRT test at a fixed 40,000 nodes per move; about fifteen other ideas were tested and rejected. In cutechess-cli against the 2.2.1 release package:
+
+| Time control | Games | Result (W-L-D) | Elo |
+|---|---|---|---|
+| 10+0.1 | 500 | **145-56-299** | **+62.5 ± 19.1** |
+| 40 moves / 30 s | 100 | 22-13-65 | |
+| 5+0.05, engine restarted every game | 100 | 31-19-50 | |
+| 10+0.1, 4 threads, 1 GB hash | 20 | 2-3-15 | |
+
+In 820 games, including a self-contained vs framework-dependent check, there were no time losses, crashes or illegal moves. The `bench` node count of 2.3 is `1717319`. Full numbers are in the [release notes](https://github.com/aiagentvn/dolphin/releases/tag/v2.3.0).
 
 ### Search changes in version 2.2
 

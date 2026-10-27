@@ -56,6 +56,7 @@ namespace Dolphin2
         public int PliesFromNull;
         public int FullmoveStart = 1;
         public ulong Key, PawnKey;
+        public readonly ulong[] NonPawnKey = new ulong[2]; // pieces other than pawns, per colour (kings included)
         public ulong Checkers;  // enemy pieces giving check to side to move
         public ulong Pinned;    // our pieces pinned to our king
         public int Captured = C.NoPiece; // piece captured by the last move
@@ -108,6 +109,7 @@ namespace Dolphin2
             int t = C.TypeOf(pc);
             Phase += PhaseWeight[t];
             NonPawnMaterial[C.ColorOf(pc)] += Eval.NonPawnValue[t];
+            if (t != C.Pawn) NonPawnKey[C.ColorOf(pc)] ^= Zobrist.Psq[pc * 64 + sq];
             Acc?.Add(pc, sq);
         }
 
@@ -124,6 +126,7 @@ namespace Dolphin2
             int t = C.TypeOf(pc);
             Phase -= PhaseWeight[t];
             NonPawnMaterial[C.ColorOf(pc)] -= Eval.NonPawnValue[t];
+            if (t != C.Pawn) NonPawnKey[C.ColorOf(pc)] ^= Zobrist.Psq[pc * 64 + sq];
             Acc?.Remove(pc, sq);
         }
 
@@ -138,6 +141,7 @@ namespace Dolphin2
             Board[from] = C.NoPiece;
             Board[to] = pc;
             Psq += Eval.PsqTable[pc * 64 + to] - Eval.PsqTable[pc * 64 + from];
+            if (C.TypeOf(pc) != C.Pawn) NonPawnKey[C.ColorOf(pc)] ^= Zobrist.Psq[pc * 64 + from] ^ Zobrist.Psq[pc * 64 + to];
             Acc?.Move(pc, from, to);
         }
 
@@ -401,6 +405,7 @@ namespace Dolphin2
             Occupied = 0;
             for (int i = 0; i < 64; i++) Board[i] = C.NoPiece;
             Psq = 0; Phase = 0; NonPawnMaterial[0] = NonPawnMaterial[1] = 0;
+            NonPawnKey[0] = NonPawnKey[1] = 0;
             GamePly = 0;
             Captured = C.NoPiece;
 
@@ -461,6 +466,15 @@ namespace Dolphin2
             ulong k = 0;
             for (int s = 0; s < 64; s++)
                 if (Board[s] != C.NoPiece && C.TypeOf(Board[s]) == C.Pawn) k ^= Zobrist.Psq[Board[s] * 64 + s];
+            return k;
+        }
+
+        public ulong ComputeNonPawnKey(int color)
+        {
+            ulong k = 0;
+            for (int s = 0; s < 64; s++)
+                if (Board[s] != C.NoPiece && C.TypeOf(Board[s]) != C.Pawn && C.ColorOf(Board[s]) == color)
+                    k ^= Zobrist.Psq[Board[s] * 64 + s];
             return k;
         }
 

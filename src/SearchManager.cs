@@ -41,6 +41,9 @@ namespace Dolphin2
             if (clock.ElapsedMilliseconds >= HardMs) Stop = true;
         }
 
+        static readonly int TmMovesLeft = (int)Tune.Get("MTG", 26);
+        static readonly double TmHardMul = Tune.Get("HARDMUL", 3.5);
+
         public void ComputeTime(int side, int moveOverhead)
         {
             UseTime = false;
@@ -57,9 +60,9 @@ namespace Dolphin2
             if (time < 0) return;
             UseTime = true;
             double t = Math.Max(1, time - moveOverhead);
-            int mtg = Limits.MovesToGo > 0 ? Math.Min(Limits.MovesToGo, 40) : 26;
+            int mtg = Limits.MovesToGo > 0 ? Math.Min(Limits.MovesToGo, 40) : TmMovesLeft;
             double soft = t / mtg + inc * 0.75;
-            double hard = soft * 3.5;
+            double hard = soft * TmHardMul;
             if (Limits.MovesToGo == 1) { soft = t * 0.5; hard = t * 0.7; }
             SoftMs = Math.Max(1, Math.Min(soft, t * 0.45));
             HardMs = Math.Max(1, Math.Min(hard, t * 0.7));

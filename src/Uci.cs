@@ -8,7 +8,7 @@ namespace Dolphin2
 {
     public static class Uci
     {
-        public const string EngineName = "Dolphin 2.2.1";
+        public const string EngineName = "Dolphin 2.3";
         public const string Author = "Nguyen Viet Huy";
 
         static int hashMb = 64;
@@ -167,7 +167,7 @@ namespace Dolphin2
             var pos = new Position();
             pos.EnableNNUE();
             var list = new ExtMove[C.MaxMoves];
-            int bad = 0, checks = 0;
+            int bad = 0, badKeys = 0, checks = 0;
             for (int g = 0; g < 200; g++)
             {
                 pos.SetFen(Position.StartFen);
@@ -181,13 +181,20 @@ namespace Dolphin2
                     int a = NNUE.Evaluate(pos), b = NNUE.EvaluateFresh(pos);
                     checks++;
                     if (a != b) { bad++; if (bad < 5) Console.WriteLine($"mismatch {a} {b} {pos.GetFen()}"); }
+                    if (!KeysOk(pos)) { badKeys++; if (badKeys < 5) Console.WriteLine($"key mismatch {pos.GetFen()}"); }
                 }
                 for (int i = made.Count - 1; i >= 0; i--) pos.UnmakeMove(made[i]);
                 int c = NNUE.Evaluate(pos), d = NNUE.EvaluateFresh(pos);
                 if (c != d) { bad++; Console.WriteLine("unmake mismatch"); }
+                if (!KeysOk(pos)) { badKeys++; Console.WriteLine("unmake key mismatch"); }
             }
-            Console.WriteLine($"nnuecheck: {checks} checks, {bad} mismatches");
+            Console.WriteLine($"nnuecheck: {checks} checks, {bad} mismatches, {badKeys} key mismatches");
         }
+
+        // incremental hash keys must equal the ones computed from scratch
+        static bool KeysOk(Position pos) =>
+            pos.Key == pos.ComputeKey() && pos.PawnKey == pos.ComputePawnKey()
+            && pos.NonPawnKey[0] == pos.ComputeNonPawnKey(0) && pos.NonPawnKey[1] == pos.ComputeNonPawnKey(1);
 
         static void SetOption(string line)
         {

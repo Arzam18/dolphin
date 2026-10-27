@@ -16,12 +16,12 @@ namespace Dolphin2
         public bool TtPv;
         public int Cutoffs;
         public int RawEval;
+        public int MoveCount;
     }
 
     public sealed partial class SearchThread
     {
         public static bool CheckExt = Environment.GetEnvironmentVariable("DOLPHIN_CHECKEXT") != null; // off: +14 Elo (SPRT, 1700 games)
-        public static bool UseCorr = Environment.GetEnvironmentVariable("DOLPHIN_CORR") != null;
         const int Off = 6; // stack offset so that ss[ply - 6] is always valid
         const int NoCont = 768;
 
@@ -43,8 +43,16 @@ namespace Dolphin2
         readonly int[] capHist = new int[12 * 64 * 6];
         readonly int[] counterMoves = new int[12 * 64];
         readonly long[] rootNodes = new long[64 * 64];
-        const int CorrSize = 16384, CorrGrain = 256, CorrMax = CorrGrain * 48;
-        readonly int[] corrHist = new int[2 * CorrSize];
+        // Correction history: what searches found versus the static eval, keyed by pawn structure, by each side's
+        // other pieces, and by the last two move pairs. Entries are in 1/32 cp and saturate at 64 cp.
+        const int CorrSize = 16384, CorrGrain = 32, CorrMax = CorrGrain * 64;
+        readonly int[] pawnCorr = new int[2 * CorrSize];
+        readonly int[] npCorrW = new int[2 * CorrSize];
+        readonly int[] npCorrB = new int[2 * CorrSize];
+        readonly int[] contCorr = new int[(NoCont + 1) * 768];
+        static readonly int CorrWPawn = (int)Tune.Get("CORRWP", 128), CorrWNp = (int)Tune.Get("CORRWNP", 80);
+        static readonly int CorrWCont2 = (int)Tune.Get("CORRWC2", 80), CorrWCont4 = (int)Tune.Get("CORRWC4", 48);
+        static readonly int CorrRate = (int)Tune.Get("CORRRATE", 12);
 
         public long Nodes;
         public int SelDepth;
@@ -91,7 +99,10 @@ namespace Dolphin2
             Array.Clear(contHist, 0, contHist.Length);
             Array.Clear(capHist, 0, capHist.Length);
             Array.Clear(counterMoves, 0, counterMoves.Length);
-            Array.Clear(corrHist, 0, corrHist.Length);
+            Array.Clear(pawnCorr, 0, pawnCorr.Length);
+            Array.Clear(npCorrW, 0, npCorrW.Length);
+            Array.Clear(npCorrB, 0, npCorrB.Length);
+            Array.Clear(contCorr, 0, contCorr.Length);
             PawnTable.Clear();
         }
 
@@ -171,23 +182,46 @@ namespace Dolphin2
         int DrawScore() => 1 - (int)(Nodes & 2);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        int Evaluate() => Eval.Evaluate(Pos, PawnTable);
-
-        // static evaluation corrected by what searches in similar pawn structures found
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        int Corrected(int raw)
+        int Evaluate()
         {
-            if (!UseCorr) return raw;
-            int c = corrHist[(Pos.SideToMove * CorrSize) + (int)(Pos.PawnKey & (CorrSize - 1))] / CorrGrain;
-            return Math.Clamp(raw + c, -C.MateInMaxPly + 1, C.MateInMaxPly - 1);
+            // scale the evaluation down as material comes off: a given advantage is harder to convert with fewer pieces
+            int v = Eval.Evaluate(Pos, PawnTable);
+            int mat = Pos.NonPawnMaterial[0] + Pos.NonPawnMaterial[1] + 100 * BB.PopCount(Pos.PieceTypeBB(C.Pawn));
+            return v * (MatScaleBase + mat) / (MatScaleBase + 8200);
+        }
+        static readonly int MatScaleBase = (int)Tune.Get("MATSCALE", 24000);
+
+        // static evaluation corrected by what earlier searches found in similar positions
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        int Corrected(int raw, int ply)
+        {
+            int s = ply + Off, stm = Pos.SideToMove * CorrSize;
+            long c = (long)CorrWPawn * pawnCorr[stm + (int)(Pos.PawnKey & (CorrSize - 1))]
+                   + (long)CorrWNp * (npCorrW[stm + (int)(Pos.NonPawnKey[0] & (CorrSize - 1))]
+                                     + npCorrB[stm + (int)(Pos.NonPawnKey[1] & (CorrSize - 1))]);
+            int last = ss[s - 1].ContIdx;
+            if (last != NoCont)
+            {
+                if (ss[s - 2].ContIdx != NoCont) c += (long)CorrWCont2 * contCorr[ss[s - 2].ContIdx * 768 + last];
+                if (ss[s - 4].ContIdx != NoCont) c += (long)CorrWCont4 * contCorr[ss[s - 4].ContIdx * 768 + last];
+            }
+            return Math.Clamp(raw + (int)(c / (128 * CorrGrain)), -C.MateInMaxPly + 1, C.MateInMaxPly - 1);
         }
 
-        void UpdateCorrection(int raw, int score, int depth)
+        // diff is measured against the corrected eval, so the tables together converge to the remaining error
+        void UpdateCorrection(int staticEval, int score, int depth, int ply)
         {
-            ref int e = ref corrHist[(Pos.SideToMove * CorrSize) + (int)(Pos.PawnKey & (CorrSize - 1))];
-            int w = Math.Min(depth + 1, 16);
-            int diff = Math.Clamp(score - raw, -1000, 1000);
-            e = Math.Clamp((e * (256 - w) + diff * CorrGrain * w) / 256, -CorrMax, CorrMax);
+            int s = ply + Off, stm = Pos.SideToMove * CorrSize;
+            int bonus = Math.Clamp((score - staticEval) * depth * CorrRate / 16 * CorrGrain / 32, -CorrMax / 4, CorrMax / 4);
+            Gravity(ref pawnCorr[stm + (int)(Pos.PawnKey & (CorrSize - 1))], bonus, CorrMax);
+            Gravity(ref npCorrW[stm + (int)(Pos.NonPawnKey[0] & (CorrSize - 1))], bonus, CorrMax);
+            Gravity(ref npCorrB[stm + (int)(Pos.NonPawnKey[1] & (CorrSize - 1))], bonus, CorrMax);
+            int last = ss[s - 1].ContIdx;
+            if (last != NoCont)
+            {
+                if (ss[s - 2].ContIdx != NoCont) Gravity(ref contCorr[ss[s - 2].ContIdx * 768 + last], bonus, CorrMax);
+                if (ss[s - 4].ContIdx != NoCont) Gravity(ref contCorr[ss[s - 4].ContIdx * 768 + last], bonus, CorrMax);
+            }
         }
 
         void UpdatePv(int ply, int m)
@@ -379,6 +413,7 @@ namespace Dolphin2
                     UpdateQuietHistory(Pos.SideToMove, ttMove, Pos.Board[Mv.From(ttMove)], ply, bonus);
                     if (ss[s].Killer1 != ttMove) { ss[s].Killer2 = ss[s].Killer1; ss[s].Killer1 = ttMove; }
                 }
+                if (ttScore >= beta) PriorMoveMalus(ply, depth);
                 return ttScore;
             }
 
@@ -396,7 +431,7 @@ namespace Dolphin2
                 else if (ttHit)
                 {
                     rawEval = tte.Eval != C.NoScore ? tte.Eval : Evaluate();
-                    staticEval = Corrected(rawEval);
+                    staticEval = Corrected(rawEval, ply);
                     eval = staticEval;
                     if (ttScore != C.NoScore &&
                         ((ttScore > eval && (tte.Bound & TT.BoundLower) != 0) || (ttScore < eval && (tte.Bound & TT.BoundUpper) != 0)))
@@ -405,7 +440,7 @@ namespace Dolphin2
                 else
                 {
                     rawEval = Evaluate();
-                    staticEval = eval = Corrected(rawEval);
+                    staticEval = eval = Corrected(rawEval, ply);
                     TT.Store(key, Mv.None, C.NoScore, rawEval, -7, TT.BoundNone, ttPv);
                 }
                 ss[s].StaticEval = staticEval;
@@ -436,7 +471,7 @@ namespace Dolphin2
                 }
 
                 // reverse futility pruning
-                if (depth <= 8 && eval - (RfpMargin * depth - (improving ? 70 : 0)) >= beta && eval < C.MateInMaxPly && beta > -C.MateInMaxPly)
+                if (depth <= 8 && !ttPv && (ttMove == Mv.None || Mv.IsTactical(ttMove)) && eval - (RfpMargin * depth - (improving ? 70 : 0)) >= beta && eval < C.MateInMaxPly && beta > -C.MateInMaxPly)
                     return (eval + beta) / 2;
 
                 // null move pruning
@@ -517,6 +552,7 @@ namespace Dolphin2
                 if (!Pos.IsLegal(m)) continue;
 
                 moveCount++;
+                ss[s].MoveCount = moveCount;
                 bool isQuiet = !Mv.IsTactical(m);
                 int from = Mv.From(m), to = Mv.To(m);
                 int piece = Pos.Board[from];
@@ -652,7 +688,10 @@ namespace Dolphin2
             }
 
             if (bestScore >= beta && bestMove != Mv.None)
+            {
                 UpdateStats(bestMove, depth, ply, quiets, nq, caps, nc);
+                if (moveCount <= 2) PriorMoveMalus(ply, depth);
+            }
             else if (bestMove == Mv.None && ss[s - 1].ContIdx != NoCont && !Mv.IsTactical(ss[s - 1].Move) && ply > 0)
             {
                 // the previous (quiet) move refuted us: reward it in its own context
@@ -665,6 +704,10 @@ namespace Dolphin2
                 }
             }
 
+            // a fail-high at a non-PV node is pulled toward beta: the bigger margin is less trustworthy at low depth
+            if (bestScore >= beta && !pvNode && Math.Abs(bestScore) < C.MateInMaxPly && Math.Abs(beta) < C.MateInMaxPly)
+                bestScore = (bestScore * depth + beta) / (depth + 1);
+
             if (excluded == Mv.None && !(root && Ctx.Stop))
             {
                 int bound = bestScore >= beta ? TT.BoundLower : (pvNode && bestMove != Mv.None) ? TT.BoundExact : TT.BoundUpper;
@@ -673,10 +716,20 @@ namespace Dolphin2
                     && !(bound == TT.BoundLower && bestScore <= staticEval)
                     && !(bound == TT.BoundUpper && bestScore >= staticEval)
                     && Math.Abs(bestScore) < C.MateInMaxPly)
-                    UpdateCorrection(rawEval, bestScore, depth);
+                    UpdateCorrection(staticEval, bestScore, depth, ply);
             }
             _ = origAlpha;
             return bestScore;
+        }
+
+        // we refuted the opponent's previous quiet move almost at once: it was an early choice of theirs, so it was bad
+        void PriorMoveMalus(int ply, int depth)
+        {
+            int s = ply + Off;
+            int prev = ss[s - 1].Move;
+            if (ply == 0 || prev == Mv.None || prev == Mv.Null || ss[s - 1].ContIdx == NoCont || Pos.Captured != C.NoPiece
+                || ss[s - 1].MoveCount > 3 || ss[s - 2].ContIdx == NoCont) return;
+            Gravity(ref contHist[ss[s - 2].ContIdx * 768 + ss[s - 1].ContIdx], -StatBonus(depth) / 2, 16384);
         }
 
         void UpdateQuietHistoryCont(int m, int pc, int ply, int bonus)
@@ -723,7 +776,7 @@ namespace Dolphin2
             else
             {
                 rawEval = ttHit && tte.Eval != C.NoScore ? tte.Eval : Evaluate();
-                staticEval = Corrected(rawEval);
+                staticEval = Corrected(rawEval, ply);
                 bestScore = staticEval;
                 if (ttScore != C.NoScore &&
                     ((ttScore > bestScore && (tte.Bound & TT.BoundLower) != 0) || (ttScore < bestScore && (tte.Bound & TT.BoundUpper) != 0)))
