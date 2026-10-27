@@ -1,0 +1,19 @@
+name: arm64-musl-static
+on: workflow_dispatch
+jobs:
+build:
+runs-on: ubuntu-24.04-arm
+steps:
+- uses: actions/checkout@v4
+- name: Build with native AOT in Alpine (musl)
+run: |
+docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0-alpine sh -c "
+apk add --no-cache clang lld build-base zlib-dev zlib-static &&
+dotnet publish Dolphin2.csproj -c Release -r linux-musl-arm64
+-p:TargetFramework=net8.0 -p:PublishAot=true -p:PlatformTarget=AnyCPU
+-p:StaticExecutable=true -p:InvariantGlobalization=true -o out &&
+./out/Dolphin2 bench"
+- uses: actions/upload-artifact@v4
+with:
+name: dolphin-linux-musl-arm64
+path: out/Dolphin2
