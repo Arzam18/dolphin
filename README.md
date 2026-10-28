@@ -245,7 +245,7 @@ Dolphin2.exe train data=data/gen1.bin,data/gen2.bin hidden=384 epochs=25 threads
 | `mirror` | 0 | `mirror=1` adds horizontally mirrored positions |
 | `out` | `dolphin.nnue` | Output network. A float checkpoint `<out>.f32` is saved too. |
 
-The bundled `dolphin.nnue` was trained this way: about 44 million self-play positions from five generations of data (searched at 5000 nodes per move, each generation played with the best network available at the time), hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`.
+The bundled `dolphin.nnue` was trained this way: about 54 million self-play positions from six generations of data (searched at 5000 nodes per move, each generation played with the best network available at the time), hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`. The sixth generation (9.7 million positions, version 2.5) was played with the 2.4 search and the environment variable `DOLPHIN_P_MATSCALE=0`. This turns off the material scaling of the evaluation, so the stored scores are not scaled twice.
 
 **3. Use the network**
 
@@ -266,6 +266,10 @@ The `tools/` folder contains the Python scripts used during development (they ne
 - **`bench`**: the node count of `Dolphin2.exe bench` is a quick check that a change did not alter the search by accident.
 
 Stockfish was used only as an external tool (reference perft results and a sparring partner). Dolphin does not contain any Stockfish code or networks.
+
+### Changes in version 2.5
+
+Version 2.5 has a new network trained on about 54 million self-play positions. It is the same size as before and no data from other engines was used. The search is unchanged from 2.4. Against the 2.4 network in the same engine it scored +16.2 ± 11.7 Elo at 20,000 nodes per move (2000 games) and +18.8 ± 12.9 Elo at 10+0.1 (1000 games). Against the 2.4 release package in cutechess-cli at 10+0.1 it scored **119-91-290, +19.5 ± 19.7 Elo** (500 games, both with Syzygy 3-4-5 piece tablebases). In 720 games there were no time losses, crashes or illegal moves. The `bench` node count of 2.5 is `1551453`. Full numbers are in the [release notes](https://github.com/aiagentvn/dolphin/releases/tag/v2.5.0).
 
 ### Search changes in version 2.3
 

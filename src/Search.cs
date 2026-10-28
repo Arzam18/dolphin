@@ -187,6 +187,7 @@ namespace Dolphin2
         {
             // scale the evaluation down as material comes off: a given advantage is harder to convert with fewer pieces
             int v = Eval.Evaluate(Pos, PawnTable);
+            if (MatScaleBase <= 0) return v;   // DOLPHIN_P_MATSCALE=0: unscaled, used when generating training data
             int mat = Pos.NonPawnMaterial[0] + Pos.NonPawnMaterial[1] + 100 * BB.PopCount(Pos.PieceTypeBB(C.Pawn));
             return v * (MatScaleBase + mat) / (MatScaleBase + 8200);
         }
