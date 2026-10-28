@@ -155,8 +155,11 @@ namespace Dolphin2
         public static int ScoreToTT(int s, int ply)
         {
             if (s == C.NoScore) return s;
+            // mate and tablebase scores are stored relative to the node, not to the root
             if (s >= C.MateInMaxPly) return s + ply;
             if (s <= -C.MateInMaxPly) return s - ply;
+            if (s >= C.TbWinInMaxPly && s <= C.TbWin) return s + ply;   // stored at most MateInMaxPly - 2
+            if (s <= -C.TbWinInMaxPly && s >= -C.TbWin) return s - ply;
             return s;
         }
 
@@ -175,6 +178,9 @@ namespace Dolphin2
                 if (C.Mate + s > 99 - halfmove) return -C.MateInMaxPly + 1;
                 return s + ply;
             }
+            // MateInMaxPly - 1 is the "unreachable mate" value and is never ply-adjusted
+            if (s >= C.TbWinInMaxPly && s < C.MateInMaxPly - 1) return s - ply;
+            if (s <= -C.TbWinInMaxPly && s > -C.MateInMaxPly + 1) return s + ply;
             return s;
         }
     }

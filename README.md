@@ -6,7 +6,7 @@ It uses bitboards, a modern alpha-beta search and an **NNUE neural-network evalu
 You can load it into any chess GUI that speaks UCI (Arena, Cute Chess, BanksiaGUI, ...) and play against it, analyse with it, or run engine-vs-engine matches.
 
 - **Author:** Nguyễn Viết Huy (Vietnam)
-- **Language:** C# (.NET), single project, no external dependencies
+- **Language:** C# (.NET), single project. Optional Syzygy tablebase support uses the [Fathom](https://github.com/jdart1/Fathom) library (C, MIT), included in `native/`
 - **Protocol:** UCI
 - **License:** [MIT](LICENSE)
 - **Rating:** CCRL Blitz **3448** (±21) for Dolphin 2.2, rank 124 at the time of writing (October 2026, 575 games). See the [CCRL Blitz rating list](https://computerchess.org.uk/404/) and the [Dolphin 2.2 details](https://computerchess.org.uk/404/cgi/engine_details.cgi?print=Details&each_game=1&eng=Dolphin%202.2%2064-bit). Version 2.2.1 plays exactly like 2.2; it only fixes a startup problem in some GUIs.
@@ -136,6 +136,17 @@ Increase the UCI option `Move Overhead` (for example to 100–200 ms).
 | `Clear Hash` | – | Empties the transposition table. |
 | `UseNNUE` | true | Use the neural network. When off, Dolphin uses its hand-written evaluation (much weaker). |
 | `EvalFile` | `dolphin.nnue` | Load a different network file. The default network is embedded in the program. |
+| `SyzygyPath` | `<empty>` | Folder(s) with Syzygy endgame tablebases (`.rtbw`/`.rtbz` files). Separate several folders with `;` on Windows. Empty = no tablebases. |
+| `SyzygyProbeDepth` | 1 | Probe the tablebases in the search only at this depth or more. Raise it if the tables are on a slow disk. |
+
+### Syzygy tablebases
+
+From version 2.4 Dolphin can use Syzygy endgame tablebases. With up to 5 pieces the tables take about 1 GB; with 6 pieces, about 150 GB. Download them (for example from https://tablebase.sesse.net/syzygy/) and set `SyzygyPath` to the folder. The engine then:
+- picks root moves that keep the theoretical result (winning moves that make progress, drawing moves, or the longest defence);
+- uses win/draw/loss results inside the search after captures and pawn moves;
+- reports `tbhits` in its `info` output.
+
+Probing goes through `fathom.dll`, which is included in the Windows packages and in `native/win-x64/`. If the library is missing, Dolphin still plays normally without tablebases. To rebuild the library: `native/build-fathom.ps1` (Visual Studio / Build Tools), or `native/build-fathom.sh` on Linux (not tested yet).
 
 ---
 
@@ -310,6 +321,9 @@ src/
   Bench.cs, Perft.cs   benchmark and perft
   Tune.cs              lets search parameters be overridden by DOLPHIN_P_<NAME>
                        environment variables, for A/B testing without rebuilding
+  Syzygy.cs            Syzygy tablebase probing (through the Fathom library)
+native/                Fathom (unmodified, MIT, see native/fathom/LICENSE), a small C wrapper,
+                       build scripts and the prebuilt Windows library win-x64/fathom.dll
 tools/                 development scripts (perft check, matches, opening set)
 ```
 
@@ -318,5 +332,7 @@ tools/                 development scripts (perft check, matches, opening set)
 ## License
 
 Dolphin is released under the [MIT License](LICENSE). You are free to use, modify and redistribute it, including in your own projects, as long as the copyright notice is kept.
+
+The Syzygy probing code in `native/fathom/` is [Fathom](https://github.com/jdart1/Fathom) by Ronald de Man, basil00 and Jon Dart, also under the MIT License (see `native/fathom/LICENSE`).
 
 Contributions, bug reports and match results are welcome. Please open an issue or a pull request.

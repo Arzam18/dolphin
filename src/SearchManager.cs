@@ -22,6 +22,7 @@ namespace Dolphin2
         public double SoftMs, HardMs;
         public bool Silent;
         public SearchThread[] Threads;
+        public List<int> RootAllowed;   // root moves kept by the tablebase probe (null = no filtering)
         readonly Stopwatch clock = new Stopwatch();
 
         public long ElapsedMs() => clock.ElapsedMilliseconds;
@@ -31,6 +32,13 @@ namespace Dolphin2
         {
             long n = 0;
             foreach (var t in Threads) n += t.Nodes;
+            return n;
+        }
+
+        public long TotalTbHits()
+        {
+            long n = 0;
+            foreach (var t in Threads) n += t.TbHits;
             return n;
         }
 
@@ -74,7 +82,7 @@ namespace Dolphin2
             long ms = Math.Max(1, clock.ElapsedMilliseconds);
             long nodes = TotalNodes();
             string b = bound == TT.BoundLower ? " lowerbound" : bound == TT.BoundUpper ? " upperbound" : "";
-            SearchManager.Send($"info depth {depth} seldepth {Math.Max(depth, t.SelDepth)} multipv 1 score {SearchManager.ScoreString(score)}{b} nodes {nodes} nps {nodes * 1000 / ms} hashfull {TT.HashFull()} time {ms} pv {t.PvString()}");
+            SearchManager.Send($"info depth {depth} seldepth {Math.Max(depth, t.SelDepth)} multipv 1 score {SearchManager.ScoreString(score)}{b} nodes {nodes} nps {nodes * 1000 / ms} hashfull {TT.HashFull()} time {ms}{(Syzygy.Largest > 0 ? " tbhits " + TotalTbHits() : "")} pv {t.PvString()}");
         }
     }
 
@@ -158,6 +166,8 @@ namespace Dolphin2
             Ctx.RestartClock();
             Ctx.ComputeTime(threads[0].Pos.SideToMove, MoveOverhead);
             TT.NewSearch();
+            // tablebase root probe: once, before the helper threads start (the root probe is not thread safe)
+            Ctx.RootAllowed = Syzygy.Largest > 0 ? Syzygy.RootMoves(threads[0].Pos, out _) : null;
 
             mainRunner = new Thread(RunSearch, 64 * 1024 * 1024) { IsBackground = true, Priority = ThreadPriority.AboveNormal };
             mainRunner.Start();

@@ -1,0 +1,1 @@
+Fathom commit c9c6fef (2025-12-23), https://github.com/jdart1/Fathom - unmodified copy of src/ and LICENSE

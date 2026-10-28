@@ -232,7 +232,7 @@ namespace Dolphin2
             int v = (int)(sum * Scale);
             // damp towards zero as the 50-move counter grows
             v = v * (200 - pos.Halfmove) / 200;
-            return Math.Clamp(v, -C.MateInMaxPly + 1, C.MateInMaxPly - 1);
+            return Math.Clamp(v, -C.TbWinInMaxPly + 1, C.TbWinInMaxPly - 1);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

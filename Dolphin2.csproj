@@ -18,7 +18,7 @@
     <RollForward>Major</RollForward>
     <DebugType>none</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <Version>2.3.0</Version>
+    <Version>2.4.0</Version>
     <Authors>Nguyen Viet Huy</Authors>
     <Product>Dolphin Chess</Product>
   </PropertyGroup>
@@ -26,6 +26,8 @@
   <ItemGroup>
     <Compile Remove="snap/**;legacy/**;data/**;tools/**;build/**;release/**;nets/**;githubcode/**;docs/**" />
     <EmbeddedResource Include="dolphin.nnue" Condition="Exists('dolphin.nnue')" LogicalName="dolphin.nnue" />
+    <!-- Syzygy tablebase probing (Fathom, MIT, see native/). Optional: without it the engine runs without tablebases. -->
+    <None Include="native/win-x64/fathom.dll" Condition="Exists('native/win-x64/fathom.dll')" Link="fathom.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
