@@ -16,6 +16,7 @@ $out = "release\Dolphin2"
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 New-Item -ItemType Directory -Force $out | Out-Null
 foreach ($f in "Dolphin2.exe", "Dolphin2.dll", "Dolphin2.deps.json", "Dolphin2.runtimeconfig.json") { Copy-Item "$tmp\$f" $out }
+if (Test-Path "$tmp\fathom.dll") { Copy-Item "$tmp\fathom.dll" $out }   # Syzygy probing (optional)
 Copy-Item "dolphin.nnue" $out -Force
 Copy-Item "HUONG_DAN.md" $out -Force -ErrorAction SilentlyContinue
 

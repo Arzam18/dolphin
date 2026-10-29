@@ -18,6 +18,9 @@ namespace Dolphin2
         public const int Infinite = 32000;
         public const int Mate = 31000;
         public const int MateInMaxPly = Mate - MaxPly;
+        // tablebase wins sit below every mate score (and below the "unreachable mate" value MateInMaxPly - 1)
+        public const int TbWin = Mate - 2 * MaxPly - 1;
+        public const int TbWinInMaxPly = TbWin - MaxPly;
         public const int NoScore = 32001;
 
         // Castling rights bits

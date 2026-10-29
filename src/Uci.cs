@@ -8,7 +8,7 @@ namespace Dolphin2
 {
     public static class Uci
     {
-        public const string EngineName = "Dolphin 2.3";
+        public const string EngineName = "Dolphin 2.5";
         public const string Author = "Nguyen Viet Huy";
 
         static int hashMb = 64;
@@ -72,6 +72,8 @@ namespace Dolphin2
                     SearchManager.Send("option name Clear Hash type button");
                     SearchManager.Send("option name UseNNUE type check default " + (NNUE.Enabled ? "true" : "false"));
                     SearchManager.Send("option name EvalFile type string default " + NNUE.DefaultFile);
+                    SearchManager.Send("option name SyzygyPath type string default <empty>");
+                    SearchManager.Send("option name SyzygyProbeDepth type spin default 1 min 1 max 100");
                     SearchManager.Send("uciok");
                     break;
                 case "isready":
@@ -150,6 +152,10 @@ namespace Dolphin2
                     break;
                 case "nnuecheck":
                     NNUECheck(tok);
+                    break;
+                case "tbcheck":
+                    warmupDone.Wait();
+                    Syzygy.Check(tok.Length > 1 && int.TryParse(tok[1], out int np) ? np : 20000);
                     break;
                 default:
                     if (tok.Length > 0 && cmd != "debug" && cmd != "register")
@@ -232,6 +238,13 @@ namespace Dolphin2
                     SearchManager.Wait();
                     if (NNUE.Load(value)) { SearchManager.RefreshEvalMode(); SearchManager.Send("info string loaded network " + value); }
                     else SearchManager.Send("info string could not load network " + value + ", using classical eval");
+                    break;
+                case "syzygypath":
+                    SearchManager.Wait();
+                    SearchManager.Send("info string " + Syzygy.Init(value));
+                    break;
+                case "syzygyprobedepth":
+                    if (int.TryParse(value, out int pd)) Syzygy.ProbeDepth = Math.Clamp(pd, 1, 100);
                     break;
                 case "ponder":
                     break;

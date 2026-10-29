@@ -55,6 +55,7 @@ namespace Dolphin2
         static readonly int CorrRate = (int)Tune.Get("CORRRATE", 12);
 
         public long Nodes;
+        public long TbHits;
         public int SelDepth;
         public int CompletedDepth;
         public int BestMove, PonderMove, BestScore;
@@ -186,6 +187,7 @@ namespace Dolphin2
         {
             // scale the evaluation down as material comes off: a given advantage is harder to convert with fewer pieces
             int v = Eval.Evaluate(Pos, PawnTable);
+            if (MatScaleBase <= 0) return v;   // DOLPHIN_P_MATSCALE=0: unscaled, used when generating training data
             int mat = Pos.NonPawnMaterial[0] + Pos.NonPawnMaterial[1] + 100 * BB.PopCount(Pos.PieceTypeBB(C.Pawn));
             return v * (MatScaleBase + mat) / (MatScaleBase + 8200);
         }
@@ -205,7 +207,7 @@ namespace Dolphin2
                 if (ss[s - 2].ContIdx != NoCont) c += (long)CorrWCont2 * contCorr[ss[s - 2].ContIdx * 768 + last];
                 if (ss[s - 4].ContIdx != NoCont) c += (long)CorrWCont4 * contCorr[ss[s - 4].ContIdx * 768 + last];
             }
-            return Math.Clamp(raw + (int)(c / (128 * CorrGrain)), -C.MateInMaxPly + 1, C.MateInMaxPly - 1);
+            return Math.Clamp(raw + (int)(c / (128 * CorrGrain)), -C.TbWinInMaxPly + 1, C.TbWinInMaxPly - 1);
         }
 
         // diff is measured against the corrected eval, so the tables together converge to the remaining error
@@ -244,6 +246,7 @@ namespace Dolphin2
         public void Run()
         {
             Nodes = 0;
+            TbHits = 0;
             SelDepth = 0;
             CompletedDepth = 0;
             BestMove = Mv.None;
@@ -267,6 +270,8 @@ namespace Dolphin2
                 return;
             }
             int fallback = tmp[0].Move;
+            var allowed = Ctx.RootAllowed;
+            if (allowed != null) { rootLegal = allowed.Count; fallback = allowed[0]; }
 
             int maxDepth = Ctx.Limits.Depth > 0 ? Math.Min(Ctx.Limits.Depth, C.MaxPly - 4) : C.MaxPly - 4;
             int prevScore = 0;
@@ -305,7 +310,7 @@ namespace Dolphin2
                     else if (score >= beta)
                     {
                         beta = Math.Min(score + delta, C.Infinite);
-                        if (Math.Abs(score) < C.MateInMaxPly) failHighReduce = Math.Min(failHighReduce + 1, 3);
+                        if (Math.Abs(score) < C.TbWinInMaxPly) failHighReduce = Math.Min(failHighReduce + 1, 3);
                         // the PV of a fail-high is a good move: keep it
                         if (pvLen[0] > 0) { BestMove = pv[0]; PonderMove = pvLen[0] > 1 ? pv[1] : Mv.None; }
                         if (Id == 0 && Ctx.ElapsedMs() > 2000) Ctx.PrintInfo(this, depth, score, TT.BoundLower);
@@ -417,6 +422,24 @@ namespace Dolphin2
                 return ttScore;
             }
 
+            // tablebase probe (WDL): only right after a capture or pawn move, when the 50-move counter is zero
+            if (!root && excluded == Mv.None && Syzygy.Largest > 0 && Pos.Halfmove == 0 && Pos.Castling == 0
+                && BB.PopCount(Pos.Occupied) <= Syzygy.Largest && depth >= Syzygy.ProbeDepth)
+            {
+                int wdl = Syzygy.ProbeWdl(Pos);
+                if (wdl >= 0)
+                {
+                    TbHits++;
+                    int v = Syzygy.Score(wdl, ply);
+                    int b = wdl == Syzygy.Win ? TT.BoundLower : wdl == Syzygy.Loss ? TT.BoundUpper : TT.BoundExact;
+                    if (b == TT.BoundExact || (b == TT.BoundLower ? v >= beta : v <= alpha))
+                    {
+                        TT.Store(key, Mv.None, TT.ScoreToTT(v, ply), C.NoScore, Math.Min(C.MaxPly - 1, depth + 6), b, ttPv);
+                        return v;
+                    }
+                }
+            }
+
             // static evaluation
             int staticEval, eval, rawEval = C.NoScore;
             bool improving = false;
@@ -471,13 +494,13 @@ namespace Dolphin2
                 }
 
                 // reverse futility pruning
-                if (depth <= 8 && !ttPv && (ttMove == Mv.None || Mv.IsTactical(ttMove)) && eval - (RfpMargin * depth - (improving ? 70 : 0)) >= beta && eval < C.MateInMaxPly && beta > -C.MateInMaxPly)
+                if (depth <= 8 && !ttPv && (ttMove == Mv.None || Mv.IsTactical(ttMove)) && eval - (RfpMargin * depth - (improving ? 70 : 0)) >= beta && eval < C.TbWinInMaxPly && beta > -C.TbWinInMaxPly)
                     return (eval + beta) / 2;
 
                 // null move pruning
                 if (depth >= 3 && eval >= beta && staticEval >= beta - 20 * depth + 140
                     && ss[s - 1].Move != Mv.Null && ply >= nmpMinPly
-                    && Pos.NonPawnMaterial[us] > 0 && beta > -C.MateInMaxPly)
+                    && Pos.NonPawnMaterial[us] > 0 && beta > -C.TbWinInMaxPly)
                 {
                     int R = NmpBase + depth / 4 + Math.Min((eval - beta) / 200, 3);
                     ss[s].Move = Mv.Null;
@@ -489,7 +512,7 @@ namespace Dolphin2
                     if (Ctx.Stop) return 0;
                     if (v >= beta)
                     {
-                        if (v >= C.MateInMaxPly) v = beta;
+                        if (v >= C.TbWinInMaxPly) v = beta;
                         if (nmpMinPly != 0 || depth < 14) return v;
                         // verification search at high depth (zugzwang safety)
                         nmpMinPly = ply + 3 * (depth - R) / 4;
@@ -501,7 +524,7 @@ namespace Dolphin2
 
                 // ProbCut
                 int pcBeta = beta + 190 - (improving ? 50 : 0);
-                if (depth >= 5 && Math.Abs(beta) < C.MateInMaxPly
+                if (depth >= 5 && Math.Abs(beta) < C.TbWinInMaxPly
                     && !(ttHit && tte.Depth >= depth - 3 && ttScore != C.NoScore && ttScore < pcBeta))
                 {
                     var pc = pickers[ply];
@@ -549,6 +572,7 @@ namespace Dolphin2
             {
                 int m = m2;
                 if (m == excluded) continue;
+                if (root && Ctx.RootAllowed != null && !Ctx.RootAllowed.Contains(m)) continue;
                 if (!Pos.IsLegal(m)) continue;
 
                 moveCount++;
@@ -561,7 +585,7 @@ namespace Dolphin2
                 long nodesBefore = Nodes;
 
                 // ------------------------------------------------ shallow depth pruning
-                if (!root && bestScore > -C.MateInMaxPly && Pos.NonPawnMaterial[us] > 0)
+                if (!root && bestScore > -C.TbWinInMaxPly && Pos.NonPawnMaterial[us] > 0)
                 {
                     int lmrDepth = Math.Max(0, depth - 1 - Reductions[Math.Min(depth, 63), Math.Min(moveCount, 63)]);
                     if (isQuiet && !givesCheck)
@@ -580,7 +604,7 @@ namespace Dolphin2
                 // ------------------------------------------------ extensions
                 int ext = 0;
                 if (!root && m == ttMove && excluded == Mv.None && depth >= 7 && ply < 2 * RootDepth
-                    && ttScore != C.NoScore && Math.Abs(ttScore) < C.MateInMaxPly
+                    && ttScore != C.NoScore && Math.Abs(ttScore) < C.TbWinInMaxPly
                     && (tte.Bound & TT.BoundLower) != 0 && tte.Depth >= depth - 3)
                 {
                     int sBeta = ttScore - 2 * depth;
@@ -705,7 +729,7 @@ namespace Dolphin2
             }
 
             // a fail-high at a non-PV node is pulled toward beta: the bigger margin is less trustworthy at low depth
-            if (bestScore >= beta && !pvNode && Math.Abs(bestScore) < C.MateInMaxPly && Math.Abs(beta) < C.MateInMaxPly)
+            if (bestScore >= beta && !pvNode && Math.Abs(bestScore) < C.TbWinInMaxPly && Math.Abs(beta) < C.TbWinInMaxPly)
                 bestScore = (bestScore * depth + beta) / (depth + 1);
 
             if (excluded == Mv.None && !(root && Ctx.Stop))
@@ -715,7 +739,7 @@ namespace Dolphin2
                 if (!inCheck && (bestMove == Mv.None || !Mv.IsTactical(bestMove))
                     && !(bound == TT.BoundLower && bestScore <= staticEval)
                     && !(bound == TT.BoundUpper && bestScore >= staticEval)
-                    && Math.Abs(bestScore) < C.MateInMaxPly)
+                    && Math.Abs(bestScore) < C.TbWinInMaxPly)
                     UpdateCorrection(staticEval, bestScore, depth, ply);
             }
             _ = origAlpha;
@@ -803,7 +827,7 @@ namespace Dolphin2
                 moveCount++;
                 bool isCapture = Mv.IsCapture(m);
 
-                if (bestScore > -C.MateInMaxPly)
+                if (bestScore > -C.TbWinInMaxPly)
                 {
                     if (!inCheck)
                     {
