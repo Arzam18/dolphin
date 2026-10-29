@@ -15,7 +15,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Build Dolphin with NativeAOT
+      - name: Build with native AOT in Alpine (musl)
         run: |
           set -eu
 
@@ -23,18 +23,16 @@ jobs:
             -v "$PWD:/src" \
             -w /src \
             mcr.microsoft.com/dotnet/sdk:8.0-alpine \
-            sh -euxc '
-              apk add --no-cache \
-                clang \
-                lld \
-                build-base \
-                zlib-dev \
-                zlib-static
+            sh -c '
+              set -eu
+
+              apk add --no-cache clang lld build-base zlib-dev zlib-static
+
+              sed -i "s#<TargetFramework>net5.0</TargetFramework>#<TargetFramework>net8.0</TargetFramework>#" Dolphin2.csproj
 
               dotnet publish Dolphin2.csproj \
                 -c Release \
                 -r linux-musl-arm64 \
-                -p:TargetFramework=net8.0 \
                 -p:PublishAot=true \
                 -p:PlatformTarget=AnyCPU \
                 -p:StaticExecutable=true \
