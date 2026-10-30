@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   build:
-    # Cross-compile using the Linux x64 NDK host tools.
     runs-on: ubuntu-24.04
 
     steps:
@@ -29,7 +28,8 @@ jobs:
           NDK_ARCHIVE="$RUNNER_TEMP/android-ndk-r27c-linux.zip"
           NDK_URL="https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
 
-          curl --fail --location --retry 3 --retry-delay 2 "$NDK_URL" --output "$NDK_ARCHIVE"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "$NDK_URL" --output "$NDK_ARCHIVE"
 
           echo "090e8083a715fdb1a3e402d0763c388abb03fb4e  $NDK_ARCHIVE" | sha1sum --check --status
 
@@ -39,31 +39,51 @@ jobs:
           NDK_BIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
           test -x "$NDK_BIN/clang"
+          test -x "$NDK_BIN/ld.lld"
+
           echo "$NDK_BIN" >> "$GITHUB_PATH"
           echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
 
-      - name: Verify Android NDK toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v clang
-          clang --version
-          test -x "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
-
-      - name: Retarget Dolphin project to .NET 8
+      - name: Retarget project and apply Bionic linker workaround
         shell: bash
         run: |
           set -euo pipefail
 
-          sed -i 's#<TargetFramework>net5.0</TargetFramework>#<TargetFramework>net8.0</TargetFramework>#' Dolphin2.csproj
+          python3 <<'PY'
+          from pathlib import Path
 
-          if ! grep -q '<TargetFramework>net8.0</TargetFramework>' Dolphin2.csproj; then
-            echo "ERROR: Dolphin2.csproj was not retargeted to net8.0."
-            exit 1
-          fi
+          path = Path("Dolphin2.csproj")
+          source = path.read_text()
+
+          old_framework = "<TargetFramework>net5.0</TargetFramework>"
+          new_framework = "<TargetFramework>net8.0</TargetFramework>"
+
+          if old_framework in source:
+              source = source.replace(old_framework, new_framework, 1)
+          elif new_framework not in source:
+              raise SystemExit(
+                  "ERROR: Could not find the expected TargetFramework in Dolphin2.csproj."
+              )
+
+          if '<LinkerArg Include="-Wl,--undefined-version"' not in source:
+              workaround = """
+            <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux-bionic'))">
+              <LinkerArg Include="-Wl,--undefined-version" />
+            </ItemGroup>
+          """
+              if "</Project>" not in source:
+                  raise SystemExit("ERROR: Missing closing Project element.")
+              source = source.rsplit("</Project>", 1)[0] + workaround + "\n</Project>\n"
+
+          path.write_text(source)
+          print("Updated Dolphin2.csproj:")
+          print("  TargetFramework: net8.0")
+          print("  Bionic linker workaround: enabled")
+          PY
 
           grep '<TargetFramework>' Dolphin2.csproj
+          grep -- '--undefined-version' Dolphin2.csproj
 
       - name: Publish NativeAOT for Android Bionic ARM64
         shell: bash
@@ -87,18 +107,19 @@ jobs:
           set -euo pipefail
 
           test -s out/Dolphin2
+
           file out/Dolphin2
           readelf -h out/Dolphin2 | grep -E 'Class:|Machine:'
 
-          if ! readelf -h out/Dolphin2 | grep -q 'AArch64'; then
-            echo "ERROR: Published executable is not AArch64."
+          readelf -h out/Dolphin2 | grep -q 'AArch64' || {
+            echo "ERROR: Executable is not AArch64."
             exit 1
-          fi
+          }
 
-          echo "ELF interpreter (Android Bionic should use /system/bin/linker64):"
+          echo "ELF interpreter:"
           readelf -l out/Dolphin2 | grep 'Requesting program interpreter' || true
 
-          echo "Dynamic dependencies (Android system libraries may appear here):"
+          echo "Dynamic dependencies:"
           readelf -d out/Dolphin2 | grep NEEDED || true
 
           sha256sum out/Dolphin2
