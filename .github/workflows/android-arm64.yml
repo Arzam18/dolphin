@@ -1,5 +1,5 @@
 
-name: arm64-musl-static
+name: dolphin-android-bionic-arm64
 
 on:
   workflow_dispatch:
@@ -9,43 +9,103 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    # Cross-compile using the Linux x64 NDK host tools.
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout source
+      - name: Checkout Dolphin
         uses: actions/checkout@v4
 
-      - name: Build with native AOT in Alpine (musl)
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Android NDK r27c
+        shell: bash
         run: |
-          set -eu
+          set -euo pipefail
 
-          docker run --rm \
-            -v "$PWD:/src" \
-            -w /src \
-            mcr.microsoft.com/dotnet/sdk:8.0-alpine \
-            sh -c '
-              set -eu
+          NDK_ARCHIVE="$RUNNER_TEMP/android-ndk-r27c-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
 
-              apk add --no-cache clang lld build-base zlib-dev zlib-static
+          curl --fail --location --retry 3 --retry-delay 2 "$NDK_URL" --output "$NDK_ARCHIVE"
 
-              sed -i "s#<TargetFramework>net5.0</TargetFramework>#<TargetFramework>net8.0</TargetFramework>#" Dolphin2.csproj
+          echo "090e8083a715fdb1a3e402d0763c388abb03fb4e  $NDK_ARCHIVE" | sha1sum --check --status
 
-              dotnet publish Dolphin2.csproj \
-                -c Release \
-                -r linux-musl-arm64 \
-                -p:PublishAot=true \
-                -p:PlatformTarget=AnyCPU \
-                -p:StaticExecutable=true \
-                -p:InvariantGlobalization=true \
-                -o out
+          unzip -q "$NDK_ARCHIVE" -d "$RUNNER_TEMP"
 
-              ./out/Dolphin2 bench
-              ./out/Dolphin2 perft 5
-            '
+          NDK_ROOT="$RUNNER_TEMP/android-ndk-r27c"
+          NDK_BIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-      - name: Upload ARM64 executable
+          test -x "$NDK_BIN/clang"
+          echo "$NDK_BIN" >> "$GITHUB_PATH"
+          echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: Verify Android NDK toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v clang
+          clang --version
+          test -x "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+
+      - name: Retarget Dolphin project to .NET 8
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sed -i 's#<TargetFramework>net5.0</TargetFramework>#<TargetFramework>net8.0</TargetFramework>#' Dolphin2.csproj
+
+          if ! grep -q '<TargetFramework>net8.0</TargetFramework>' Dolphin2.csproj; then
+            echo "ERROR: Dolphin2.csproj was not retargeted to net8.0."
+            exit 1
+          fi
+
+          grep '<TargetFramework>' Dolphin2.csproj
+
+      - name: Publish NativeAOT for Android Bionic ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnet publish Dolphin2.csproj \
+            --configuration Release \
+            --runtime linux-bionic-arm64 \
+            --self-contained true \
+            -p:PublishAot=true \
+            -p:PlatformTarget=AnyCPU \
+            -p:DisableUnsupportedError=true \
+            -p:PublishAotUsingRuntimePack=true \
+            -p:InvariantGlobalization=true \
+            --output out
+
+      - name: Inspect Android ARM64 executable
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s out/Dolphin2
+          file out/Dolphin2
+          readelf -h out/Dolphin2 | grep -E 'Class:|Machine:'
+
+          if ! readelf -h out/Dolphin2 | grep -q 'AArch64'; then
+            echo "ERROR: Published executable is not AArch64."
+            exit 1
+          fi
+
+          echo "ELF interpreter (Android Bionic should use /system/bin/linker64):"
+          readelf -l out/Dolphin2 | grep 'Requesting program interpreter' || true
+
+          echo "Dynamic dependencies (Android system libraries may appear here):"
+          readelf -d out/Dolphin2 | grep NEEDED || true
+
+          sha256sum out/Dolphin2
+
+      - name: Upload Android Bionic ARM64 executable
         uses: actions/upload-artifact@v4
         with:
-          name: dolphin-linux-musl-arm64
+          name: dolphin-android-bionic-arm64
           path: out/Dolphin2
           if-no-files-found: error
