@@ -78,6 +78,7 @@ namespace Dolphin2
     {
         static readonly object fileLock = new object();
         static long games, positions;
+        static volatile bool stopRequested;   // Ctrl+C, time limit or low disk space: finish the current games, then stop
 
         // datagen threads=15 nodes=5000 games=200000 out=data/gen1.bin [book=tools/openings8.epd] [seed=1]
         public static void Run(string[] tok)
@@ -89,6 +90,7 @@ namespace Dolphin2
             string book = null;
             int seed = Environment.TickCount;
             int hash = 256;
+            double hours = 0;
             foreach (var t in tok)
             {
                 int eq = t.IndexOf('=');
@@ -103,6 +105,7 @@ namespace Dolphin2
                     case "book": book = v; break;
                     case "seed": seed = int.Parse(v); break;
                     case "hash": hash = int.Parse(v); break;
+                    case "hours": hours = double.Parse(v, System.Globalization.CultureInfo.InvariantCulture); break;
                 }
             }
             string[] openings = book != null && File.Exists(book) ? File.ReadAllLines(book) : Array.Empty<string>();
@@ -112,6 +115,19 @@ namespace Dolphin2
             Directory.CreateDirectory(dir);
             games = positions = 0;
             var sw = Stopwatch.StartNew();
+            // a run that was killed may have left half a record at the end: cut it off before appending
+            if (File.Exists(outFile))
+            {
+                long len = new FileInfo(outFile).Length;
+                if (len % PackedPos.Size != 0)
+                {
+                    using (var t = new FileStream(outFile, FileMode.Open, FileAccess.Write)) t.SetLength(len - len % PackedPos.Size);
+                    Console.WriteLine($"datagen: removed {len % PackedPos.Size} bytes of an incomplete record at the end of {outFile}");
+                }
+                Console.WriteLine($"datagen: appending to {outFile} ({new FileInfo(outFile).Length / PackedPos.Size} positions already there)");
+            }
+            stopRequested = false;
+            Console.CancelKeyPress += (s, e) => { e.Cancel = true; stopRequested = true; Console.WriteLine("datagen: stopping after the current games..."); };
             using var fs = new FileStream(outFile, FileMode.Append, FileAccess.Write, FileShare.Read, 1 << 20);
             using var bw = new BinaryWriter(fs);
             var workers = new Thread[nThreads];
@@ -131,6 +147,14 @@ namespace Dolphin2
                 TT.NewSearch(); // age old entries so finished games get evicted
                 if (sw.ElapsedMilliseconds - lastReport > 60000)
                 {
+                    lock (fileLock) bw.Flush();   // at most about a minute of data is lost if the process is killed
+                    if (hours > 0 && sw.Elapsed.TotalHours >= hours && !stopRequested) { stopRequested = true; Console.WriteLine("datagen: time limit reached, stopping after the current games..."); }
+                    try
+                    {
+                        var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(outFile)));
+                        if (drive.AvailableFreeSpace < 2L << 30 && !stopRequested) { stopRequested = true; Console.WriteLine("datagen: less than 2 GB free on the disk, stopping after the current games..."); }
+                    }
+                    catch (Exception) { }
                     lastReport = sw.ElapsedMilliseconds;
                     double s = sw.Elapsed.TotalSeconds;
                     Console.WriteLine($"[{(int)s}s] games {Interlocked.Read(ref games)} positions {Interlocked.Read(ref positions)} ({Interlocked.Read(ref positions) / s:F0} pos/s)");
@@ -150,7 +174,7 @@ namespace Dolphin2
             var list = new ExtMove[C.MaxMoves];
             var recs = new List<PackedPos>(512);
 
-            while (Interlocked.Read(ref games) < targetGames)
+            while (Interlocked.Read(ref games) < targetGames && !stopRequested)
             {
                 var pos = th.Pos;
                 int randomPlies;

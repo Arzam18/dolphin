@@ -222,6 +222,9 @@ Dolphin2.exe datagen threads=14 nodes=5000 games=100000 out=data/gen1.bin book=t
 | `out` | Output file (positions + game results) |
 | `book` | Starting positions in EPD format, for variety |
 | `seed`, `hash` | Random seed and hash size per game (optional) |
+| `hours` | Stop by itself after this many hours (optional) |
+
+Data is appended to the output file, so a stopped run can simply be started again. Ctrl+C stops after the games in progress; an incomplete record left by a killed run is removed at the next start, and the run also stops when less than 2 GB of disk space is left.
 
 The first round of data for the bundled network was generated with the hand-written evaluation. Later rounds used the newest network, so each generation of data is of higher quality than the previous one.
 
