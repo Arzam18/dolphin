@@ -223,6 +223,10 @@ Dolphin2.exe datagen threads=14 nodes=5000 games=100000 out=data/gen1.bin book=t
 | `book` | Starting positions in EPD format, for variety |
 | `seed`, `hash` | Random seed and hash size per game (optional) |
 | `hours` | Stop by itself after this many hours (optional) |
+| `softnodes` | Soft node limit: each move finishes the current search iteration once this many nodes are reached (hard limit `hardnodes`, default 20× softnodes). Without it, `nodes` is a hard limit |
+| `verify` | Nodes used to check that a starting position is balanced (default: the node limit) |
+| `book2` | A second file of starting positions (EPD), for example positions taken from real games; then a third of the games start from it |
+| `weighted` | `weighted=1`: the random opening moves pick a piece type first (pawns most often), so random openings look more natural |
 
 Data is appended to the output file, so a stopped run can simply be started again. Ctrl+C stops after the games in progress; an incomplete record left by a killed run is removed at the next start, and the run also stops when less than 2 GB of disk space is left.
 
