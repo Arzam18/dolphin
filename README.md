@@ -222,6 +222,13 @@ Dolphin2.exe datagen threads=14 nodes=5000 games=100000 out=data/gen1.bin book=t
 | `out` | Output file (positions + game results) |
 | `book` | Starting positions in EPD format, for variety |
 | `seed`, `hash` | Random seed and hash size per game (optional) |
+| `hours` | Stop by itself after this many hours (optional) |
+| `softnodes` | Soft node limit: each move finishes the current search iteration once this many nodes are reached (hard limit `hardnodes`, default 20× softnodes). Without it, `nodes` is a hard limit |
+| `verify` | Nodes used to check that a starting position is balanced (default: the node limit) |
+| `book2` | A second file of starting positions (EPD), for example positions taken from real games; then a third of the games start from it |
+| `weighted` | `weighted=1`: the random opening moves pick a piece type first (pawns most often), so random openings look more natural |
+
+Data is appended to the output file, so a stopped run can simply be started again. Ctrl+C stops after the games in progress; an incomplete record left by a killed run is removed at the next start, and the run also stops when less than 2 GB of disk space is left.
 
 The first round of data for the bundled network was generated with the hand-written evaluation. Later rounds used the newest network, so each generation of data is of higher quality than the previous one.
 
@@ -245,7 +252,7 @@ Dolphin2.exe train data=data/gen1.bin,data/gen2.bin hidden=384 epochs=25 threads
 | `mirror` | 0 | `mirror=1` adds horizontally mirrored positions |
 | `out` | `dolphin.nnue` | Output network. A float checkpoint `<out>.f32` is saved too. |
 
-The bundled `dolphin.nnue` was trained this way: about 54 million self-play positions from six generations of data (searched at 5000 nodes per move, each generation played with the best network available at the time), hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`. The sixth generation (9.7 million positions, version 2.5) was played with the 2.4 search and the environment variable `DOLPHIN_P_MATSCALE=0`. This turns off the material scaling of the evaluation, so the stored scores are not scaled twice.
+The bundled `dolphin.nnue` was trained this way: about 91 million self-play positions from seven generations of data (searched at 5000 nodes per move, part of the seventh generation with a soft limit of 2500 nodes; each generation played with the best network available at the time), hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`. The sixth and seventh generations were played with the environment variable `DOLPHIN_P_MATSCALE=0`. This turns off the material scaling of the evaluation, so the stored scores are not scaled twice. The seventh generation (36.7 million positions, version 2.6) was played with Dolphin 2.5; that part used `softnodes=2500 verify=50000 weighted=1` and a `book2` file of starting positions taken from Dolphin's own games on the CCRL rating lists.
 
 **3. Use the network**
 
@@ -266,6 +273,10 @@ The `tools/` folder contains the Python scripts used during development (they ne
 - **`bench`**: the node count of `Dolphin2.exe bench` is a quick check that a change did not alter the search by accident.
 
 Stockfish was used only as an external tool (reference perft results and a sparring partner). Dolphin does not contain any Stockfish code or networks.
+
+### Changes in version 2.6
+
+Version 2.6 has a new network trained on about 91 million self-play positions (seven generations). It is the same size as before, and every training position was played and scored by Dolphin itself. The search is unchanged from 2.5. Against the 2.5 network in the same engine it scored +25.2 ± 12.4 Elo at 20,000 nodes per move (1795 games) and +30.2 ± 13.6 Elo at 10+0.1 (981 games). Against the 2.5 release package in cutechess-cli at 10+0.1 it scored **130-89-281, +28.6 ± 20.1 Elo** (500 games, both with Syzygy 3-4-5 piece tablebases). In 1020 games there were no crashes or illegal moves; 2.6 lost 3 games on time in one 5+0.05 run (games 51, 52 and 54 of 100, each with less than 0.2 s left), and two repeats of that run (300 games) had none. The `bench` node count of 2.6 is `1856356`. Full numbers are in the [release notes](https://github.com/aiagentvn/dolphin/releases/tag/v2.6.0).
 
 ### Changes in version 2.5
 

@@ -334,6 +334,7 @@ namespace Dolphin2
                     BestMove = pv[0];
                     PonderMove = pvLen[0] > 1 ? pv[1] : Mv.None;
                 }
+                if (Ctx.Limits.SoftNodes > 0 && Nodes >= Ctx.Limits.SoftNodes) break;
 
                 if (Id != 0) continue;
 

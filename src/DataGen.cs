@@ -78,6 +78,7 @@ namespace Dolphin2
     {
         static readonly object fileLock = new object();
         static long games, positions;
+        static volatile bool stopRequested;   // Ctrl+C, time limit or low disk space: finish the current games, then stop
 
         // datagen threads=15 nodes=5000 games=200000 out=data/gen1.bin [book=tools/openings8.epd] [seed=1]
         public static void Run(string[] tok)
@@ -89,6 +90,9 @@ namespace Dolphin2
             string book = null;
             int seed = Environment.TickCount;
             int hash = 256;
+            double hours = 0;
+            string book2 = null;
+            var cfg = new Settings();
             foreach (var t in tok)
             {
                 int eq = t.IndexOf('=');
@@ -101,24 +105,49 @@ namespace Dolphin2
                     case "games": targetGames = long.Parse(v); break;
                     case "out": outFile = v; break;
                     case "book": book = v; break;
+                    case "book2": book2 = v; break;
+                    case "softnodes": cfg.SoftNodes = int.Parse(v); break;
+                    case "hardnodes": cfg.HardNodes = int.Parse(v); break;
+                    case "verify": cfg.VerifyNodes = int.Parse(v); break;
+                    case "weighted": cfg.Weighted = v == "1"; break;
                     case "seed": seed = int.Parse(v); break;
                     case "hash": hash = int.Parse(v); break;
+                    case "hours": hours = double.Parse(v, System.Globalization.CultureInfo.InvariantCulture); break;
                 }
             }
             string[] openings = book != null && File.Exists(book) ? File.ReadAllLines(book) : Array.Empty<string>();
+            cfg.Openings2 = book2 != null && File.Exists(book2) ? File.ReadAllLines(book2) : Array.Empty<string>();
+            cfg.Nodes = nodes;
+            if (cfg.SoftNodes > 0 && cfg.HardNodes <= 0) cfg.HardNodes = cfg.SoftNodes * 20;
+            if (cfg.VerifyNodes <= 0) cfg.VerifyNodes = cfg.SoftNodes > 0 ? cfg.SoftNodes : nodes;
+            if (cfg.SoftNodes > 0 || cfg.Openings2.Length > 0 || cfg.Weighted)
+                Console.WriteLine($"datagen: softnodes={cfg.SoftNodes} hardnodes={cfg.HardNodes} verify={cfg.VerifyNodes} book2={cfg.Openings2.Length} weighted={(cfg.Weighted ? 1 : 0)}");
             TT.Resize(hash);
             Console.WriteLine($"datagen: threads={nThreads} nodes={nodes} games={targetGames} out={outFile} book={openings.Length} eval={(NNUE.Enabled ? "nnue" : "classical")}");
             var dir = Path.GetDirectoryName(Path.GetFullPath(outFile));
             Directory.CreateDirectory(dir);
             games = positions = 0;
             var sw = Stopwatch.StartNew();
+            // a run that was killed may have left half a record at the end: cut it off before appending
+            if (File.Exists(outFile))
+            {
+                long len = new FileInfo(outFile).Length;
+                if (len % PackedPos.Size != 0)
+                {
+                    using (var t = new FileStream(outFile, FileMode.Open, FileAccess.Write)) t.SetLength(len - len % PackedPos.Size);
+                    Console.WriteLine($"datagen: removed {len % PackedPos.Size} bytes of an incomplete record at the end of {outFile}");
+                }
+                Console.WriteLine($"datagen: appending to {outFile} ({new FileInfo(outFile).Length / PackedPos.Size} positions already there)");
+            }
+            stopRequested = false;
+            Console.CancelKeyPress += (s, e) => { e.Cancel = true; stopRequested = true; Console.WriteLine("datagen: stopping after the current games..."); };
             using var fs = new FileStream(outFile, FileMode.Append, FileAccess.Write, FileShare.Read, 1 << 20);
             using var bw = new BinaryWriter(fs);
             var workers = new Thread[nThreads];
             for (int i = 0; i < nThreads; i++)
             {
                 int id = i;
-                workers[i] = new Thread(() => Worker(id, seed + id * 7919, nodes, targetGames, openings, bw), 64 * 1024 * 1024) { IsBackground = true };
+                workers[i] = new Thread(() => Worker(id, seed + id * 7919, cfg, targetGames, openings, bw), 64 * 1024 * 1024) { IsBackground = true };
                 workers[i].Start();
             }
             long lastReport = 0;
@@ -131,6 +160,14 @@ namespace Dolphin2
                 TT.NewSearch(); // age old entries so finished games get evicted
                 if (sw.ElapsedMilliseconds - lastReport > 60000)
                 {
+                    lock (fileLock) bw.Flush();   // at most about a minute of data is lost if the process is killed
+                    if (hours > 0 && sw.Elapsed.TotalHours >= hours && !stopRequested) { stopRequested = true; Console.WriteLine("datagen: time limit reached, stopping after the current games..."); }
+                    try
+                    {
+                        var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(outFile)));
+                        if (drive.AvailableFreeSpace < 2L << 30 && !stopRequested) { stopRequested = true; Console.WriteLine("datagen: less than 2 GB free on the disk, stopping after the current games..."); }
+                    }
+                    catch (Exception) { }
                     lastReport = sw.ElapsedMilliseconds;
                     double s = sw.Elapsed.TotalSeconds;
                     Console.WriteLine($"[{(int)s}s] games {Interlocked.Read(ref games)} positions {Interlocked.Read(ref positions)} ({Interlocked.Read(ref positions) / s:F0} pos/s)");
@@ -140,7 +177,14 @@ namespace Dolphin2
             Console.WriteLine($"done: games {games} positions {positions} in {sw.Elapsed.TotalSeconds:F0}s");
         }
 
-        static void Worker(int id, int seed, int nodes, long targetGames, string[] openings, BinaryWriter bw)
+        sealed class Settings
+        {
+            public int Nodes, SoftNodes, HardNodes, VerifyNodes;
+            public bool Weighted;
+            public string[] Openings2 = Array.Empty<string>();
+        }
+
+        static void Worker(int id, int seed, Settings cfg, long targetGames, string[] openings, BinaryWriter bw)
         {
             var rng = new Random(seed);
             var ctx = new SearchContext { Silent = true };
@@ -150,28 +194,40 @@ namespace Dolphin2
             var list = new ExtMove[C.MaxMoves];
             var recs = new List<PackedPos>(512);
 
-            while (Interlocked.Read(ref games) < targetGames)
+            while (Interlocked.Read(ref games) < targetGames && !stopRequested)
             {
                 var pos = th.Pos;
                 int randomPlies;
-                if (openings.Length > 0 && rng.Next(2) == 0)
+                // starting position: the main book plus a few random plies, a second book (positions from real games)
+                // plus up to two random plies, or the initial position plus 8-9 random plies
+                int src = cfg.Openings2.Length > 0 ? rng.Next(3) : rng.Next(2);
+                bool weightedRandom = false;
+                if (src == 0 && openings.Length > 0)
                 {
                     string l = openings[rng.Next(openings.Length)].Trim();
                     if (l.Split(' ').Length < 6) l += " 0 1";
                     pos.SetFen(l);
                     randomPlies = 2 + rng.Next(3);
                 }
+                else if (src == 2)
+                {
+                    string l = cfg.Openings2[rng.Next(cfg.Openings2.Length)].Trim();
+                    if (l.Split(' ').Length < 6) l += " 0 1";
+                    pos.SetFen(l);
+                    randomPlies = rng.Next(3);
+                }
                 else
                 {
                     pos.SetFen(Position.StartFen);
                     randomPlies = 8 + rng.Next(2);
+                    weightedRandom = cfg.Weighted;
                 }
                 bool ok = true;
                 for (int i = 0; i < randomPlies; i++)
                 {
                     int n = MoveGen.GenerateLegal(pos, list);
                     if (n == 0) { ok = false; break; }
-                    pos.MakeMove(list[rng.Next(n)].Move);
+                    pos.MakeMove(weightedRandom ? PickWeighted(pos, list, n, rng) : list[rng.Next(n)].Move);
                 }
                 if (!ok || MoveGen.GenerateLegal(pos, list) == 0) continue;
                 // re-root the game so the history array does not grow without bound
@@ -179,7 +235,7 @@ namespace Dolphin2
                 th.ClearHistory();
 
                 // reject very unbalanced starting positions
-                Search(th, ctx, nodes);
+                Search(th, ctx, cfg, cfg.VerifyNodes);
                 if (Math.Abs(th.BestScore) > 350) continue;
 
                 recs.Clear();
@@ -191,7 +247,7 @@ namespace Dolphin2
                     if (n == 0) { result = pos.InCheck() ? (pos.SideToMove == C.White ? 0 : 2) : 1; break; }
                     if (pos.IsDraw(0) || plies >= 400) { result = 1; break; }
 
-                    Search(th, ctx, nodes);
+                    Search(th, ctx, cfg, 0);
                     int best = th.BestMove;
                     int score = th.BestScore;
                     int ws = pos.SideToMove == C.White ? score : -score;
@@ -222,9 +278,27 @@ namespace Dolphin2
             }
         }
 
-        static void Search(SearchThread th, SearchContext ctx, int nodes)
+        // random move that first picks a piece type (pawn 35%, knight, bishop, queen, king 15% each, rook 5%), so random
+        // openings look more like real ones; falls back to any legal move when that piece type has none
+        static int PickWeighted(Position pos, ExtMove[] list, int n, Random rng)
         {
-            ctx.Limits = new SearchLimits { Nodes = nodes };
+            int r = rng.Next(100);
+            int type = r < 35 ? C.Pawn : r < 50 ? C.Knight : r < 65 ? C.Bishop : r < 80 ? C.Queen : r < 95 ? C.King : C.Rook;
+            int count = 0;
+            for (int i = 0; i < n; i++) if (C.TypeOf(pos.Board[Mv.From(list[i].Move)]) == type) count++;
+            if (count == 0) return list[rng.Next(n)].Move;
+            int k = rng.Next(count);
+            for (int i = 0; i < n; i++)
+                if (C.TypeOf(pos.Board[Mv.From(list[i].Move)]) == type && k-- == 0) return list[i].Move;
+            return list[0].Move;
+        }
+
+        // verifyNodes > 0: opening check; otherwise a normal move search (soft node limit when configured)
+        static void Search(SearchThread th, SearchContext ctx, Settings cfg, int verifyNodes)
+        {
+            ctx.Limits = verifyNodes > 0
+                ? (cfg.SoftNodes > 0 ? new SearchLimits { SoftNodes = verifyNodes, Nodes = (long)verifyNodes * 20 } : new SearchLimits { Nodes = verifyNodes })
+                : (cfg.SoftNodes > 0 ? new SearchLimits { SoftNodes = cfg.SoftNodes, Nodes = cfg.HardNodes } : new SearchLimits { Nodes = cfg.Nodes });
             ctx.Stop = false;
             ctx.UseTime = false;
             th.Run();

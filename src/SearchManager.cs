@@ -8,6 +8,7 @@ namespace Dolphin2
     public sealed class SearchLimits
     {
         public long WTime = -1, BTime = -1, WInc, BInc, MoveTime = -1, Nodes;
+        public long SoftNodes;   // stop after a completed iteration once this many nodes are searched (datagen)
         public int MovesToGo, Depth, Mate;
         public bool Infinite, Ponder;
     }
