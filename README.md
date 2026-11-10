@@ -252,7 +252,7 @@ Dolphin2.exe train data=data/gen1.bin,data/gen2.bin hidden=384 epochs=25 threads
 | `mirror` | 0 | `mirror=1` adds horizontally mirrored positions |
 | `out` | `dolphin.nnue` | Output network. A float checkpoint `<out>.f32` is saved too. |
 
-The bundled `dolphin.nnue` was trained this way: about 91 million self-play positions from seven generations of data (searched at 5000 nodes per move, part of the seventh generation with a soft limit of 2500 nodes; each generation played with the best network available at the time), hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`. The sixth and seventh generations were played with the environment variable `DOLPHIN_P_MATSCALE=0`. This turns off the material scaling of the evaluation, so the stored scores are not scaled twice. The seventh generation (36.7 million positions, version 2.6) was played with Dolphin 2.5; that part used `softnodes=2500 verify=50000 weighted=1` and a `book2` file of starting positions taken from Dolphin's own games on the CCRL rating lists.
+The bundled `dolphin.nnue` was trained this way: about 175 million self-play positions from eight generations of data, each generation played with the best network available at the time, hidden size 384, 25 epochs, `lambda=0.35`, `mirror=1`. Generations one to six, and the first part of the seventh, were searched at 5000 nodes per move. The sixth to eighth generations were played with the environment variable `DOLPHIN_P_MATSCALE=0`, which turns off the material scaling of the evaluation, so the stored scores are not scaled twice. Part of the seventh generation (36.7 million positions, version 2.6) and all of the eighth generation (84.5 million positions, version 2.7) used `softnodes=2500 verify=50000 weighted=1` and a `book2` file of starting positions taken from Dolphin's own games on the CCRL rating lists.
 
 **3. Use the network**
 
@@ -273,6 +273,10 @@ The `tools/` folder contains the Python scripts used during development (they ne
 - **`bench`**: the node count of `Dolphin2.exe bench` is a quick check that a change did not alter the search by accident.
 
 Stockfish was used only as an external tool (reference perft results and a sparring partner). Dolphin does not contain any Stockfish code or networks.
+
+### Changes in version 2.7
+
+Version 2.7 has a new network trained on about 175 million self-play positions (eight generations). It is the same size as before, and every training position was played and scored by Dolphin itself. The search is unchanged from 2.6. Against the 2.6 network in the same engine it scored +25.3 ± 12.1 Elo at 20,000 nodes per move (1829 games) and +20.5 ± 12.7 Elo at 10+0.1 (1000 games). Against the 2.6 release package in cutechess-cli at 10+0.1 it scored **109-93-298, +11.1 ± 19.3 Elo** (500 games, both with Syzygy 3-4-5 piece tablebases). In 820 games there were no time losses, crashes or illegal moves. The `bench` node count of 2.7 is `1410872`. Full numbers are in the [release notes](https://github.com/aiagentvn/dolphin/releases/tag/v2.7.0).
 
 ### Changes in version 2.6
 
