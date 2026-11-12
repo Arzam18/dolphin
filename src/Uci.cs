@@ -8,7 +8,7 @@ namespace Dolphin2
 {
     public static class Uci
     {
-        public const string EngineName = "Dolphin 2.7";
+        public const string EngineName = "Dolphin 2.8";
         public const string Author = "Nguyen Viet Huy";
 
         static int hashMb = 64;
